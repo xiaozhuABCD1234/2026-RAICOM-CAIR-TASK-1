@@ -40,6 +40,8 @@ MIN_AREA = 500
 ASPECT_RATIO_MIN, ASPECT_RATIO_MAX = 0.75, 1.35
 # 轮廓凸性阈值（凸包面积 / 轮廓面积），过滤不规则形状
 CONVEXITY_MIN = 0.88
+# 填充率阈值（外接矩形内颜色像素占比），过滤带文字/图案的非纯色方块
+MIN_FILL_RATIO = 0.85
 
 
 # 等待目标 IP 的指定端口就绪，超时则返回 False
@@ -111,6 +113,12 @@ def detect_cubes(frame, color):
         # 计算宽高比并过滤（立方体正面投影应接近正方形）
         aspect_ratio = w / h if h > 0 else 0
         if aspect_ratio < ASPECT_RATIO_MIN or aspect_ratio > ASPECT_RATIO_MAX:
+            continue
+
+        # 填充率过滤：外接矩形内颜色像素占比，排除带文字/图案的方块
+        roi = mask[y:y + h, x:x + w]
+        fill_ratio = cv2.countNonZero(roi) / (w * h)
+        if fill_ratio < MIN_FILL_RATIO:
             continue
 
         # 凸性过滤：计算轮廓凸包面积比

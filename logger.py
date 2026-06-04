@@ -51,11 +51,12 @@ def setup_logging(script_name: str | None = None):
     # ---- 控制台 sink：无图标彩色格式，只显示 SUCCESS 及以上 ----
     _console_handler_id = _core_logger.add(
         sys.stderr,
-        format=(
+        format=lambda r: (
             "<green>{time:HH:mm:ss.SSS}</green> | "
             "<level>{level.name: <8}</level> | "
             "<level>{message}</level>"
-        ),
+            + (" | " + " ".join(f"<cyan>{k}</cyan>=<level>{v}</level>" for k, v in r["extra"].items()) if r["extra"] else "")
+        ) + "\n",
         level=CONSOLE_LEVEL,
         colorize=True,
         backtrace=False,
