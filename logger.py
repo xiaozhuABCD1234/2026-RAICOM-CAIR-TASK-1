@@ -55,7 +55,7 @@ def setup_logging(script_name: str | None = None):
             "<green>{time:HH:mm:ss.SSS}</green> | "
             "<level>{level.name: <8}</level> | "
             "<level>{message}</level>"
-            + (" | " + " ".join(f"<cyan>{k}</cyan>=<level>{v}</level>" for k, v in r["extra"].items()) if r["extra"] else "")
+                    + (" | " + " ".join(f"<cyan>{k}</cyan>=<level>{str(v).replace('{', '{{').replace('}', '}}')}</level>" for k, v in r["extra"].items()) if r["extra"] else "")
         ) + "\n",
         level=CONSOLE_LEVEL,
         colorize=True,

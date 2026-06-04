@@ -37,7 +37,7 @@ MORPH_KSIZE = (5, 5)
 # 最小轮廓面积阈值，过滤噪声小色块
 MIN_AREA = 500
 # 立方体宽高比容差范围（正方形允许一定误差）
-ASPECT_RATIO_MIN, ASPECT_RATIO_MAX = 0.75, 1.35
+ASPECT_RATIO_MIN, ASPECT_RATIO_MAX = 0.8, 1.5
 # 轮廓凸性阈值（凸包面积 / 轮廓面积），过滤不规则形状
 CONVEXITY_MIN = 0.88
 # 填充率阈值（外接矩形内颜色像素占比），过滤带文字/图案的非纯色方块
