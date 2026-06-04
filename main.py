@@ -7,41 +7,15 @@ import re
 # 导入 time 模块，用于延时和超时控制
 import time
 
-# 导入 socket 模块，用于端口连通性检测
-import socket
+# 从共享模块导入常量、工具函数
+from common import ROBOT_IP, SEP, wait_port
 
-# 目标机器人 IP 地址，留空则走自动扫描
-ROBOT_IP = "192.168.1.22"
-# 分隔线字符 × 54，用于终端输出美观
-SEP = "─" * 54
 # 短分隔线字符 × 10
 SEP2 = "─" * 10
 # PID 控制的比例系数、积分系数、微分系数
 KP, KI, KD = 0.23, 0, 0
 # 巡线速度，单位 cm/s
 SPEED = 30
-
-
-# 等待目标 IP 的指定端口就绪，超时则返回 False
-def wait_port(ip, port, timeout=10):
-    # 计算截止时间 = 当前时间 + 超时秒数
-    deadline = time.time() + timeout
-    # 循环检测直到超时
-    while time.time() < deadline:
-        # 尝试创建 TCP 连接
-        try:
-            # 创建到 (ip, port) 的 socket 连接，单次连接超时 2 秒
-            s = socket.create_connection((ip, port), timeout=2)
-            # 连接成功则立即关闭
-            s.close()
-            # 返回 True 表示端口可达
-            return True
-        # 任何 OSError（连接被拒、超时等）都算不可达
-        except OSError:
-            # 等待 1 秒后重试
-            time.sleep(1)
-    # 超时仍未成功，返回 False
-    return False
 
 
 def _align(robot):
