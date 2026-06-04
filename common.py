@@ -7,8 +7,7 @@ import time
 # 导入 socket 模块，用于端口连通性检测
 import socket
 
-# 目标机器人 IP 地址，留空则走自动扫描
-ROBOT_IP = "192.168.1.22"
+from config import ROBOT_IP
 # 分隔线字符 × 54，用于终端输出美观
 SEP = "─" * 54
 

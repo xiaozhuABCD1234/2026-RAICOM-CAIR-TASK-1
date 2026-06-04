@@ -1,0 +1,6 @@
+[network]
+robot_ip = "192.168.1.22"
+
+[logging]
+# TRACE | DEBUG | INFO | SUCCESS | WARNING | ERROR | CRITICAL
+console_level = "TRACE"

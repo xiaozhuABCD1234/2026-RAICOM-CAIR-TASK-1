@@ -3,50 +3,46 @@ from ugot import ugot
 # 导入 time 模块，用于延时
 import time
 
-# 目标机器人 IP 地址
-ROBOT_IP = "192.168.1.22"
+from logger import get_logger
+
+from config import ROBOT_IP
 # 红外测距传感器 ID
 SENSOR_ID = 41
 
+_log = get_logger()
+
 
 def read_distance(got, sensor_id=SENSOR_ID):
-    """读取红外测距传感器数值
-
-    Args:
-        got: UGOT 机器人实例
-        sensor_id: 传感器 ID
-
-    Returns:
-        距离值 (float)，单位 cm；-1 表示未获取到数据
-    """
+    """读取红外测距传感器数值"""
     return got.read_distance_data(sensor_id)
 
 
 def main():
     got = ugot.UGOT()
 
-    print("=" * 48)
-    print("  UGOT 红外测距传感器读取")
-    print("=" * 48)
+    _log.success("=" * 48)
+    _log.success("UGOT 红外测距传感器读取")
+    _log.success("=" * 48)
 
-    print(f"[INFO] 正在连接 {ROBOT_IP} ...")
+    _log.bind(ip=ROBOT_IP, action="connect").info("正在连接...")
     got.initialize(ROBOT_IP)
-    print("[INFO] 连接成功")
+    _log.success("连接成功")
     time.sleep(1)
 
-    print(f"[INFO] 传感器 ID: {SENSOR_ID}")
-    print("[INFO] 按 Ctrl+C 停止\n")
+    _log.bind(sensor_id=SENSOR_ID).info("传感器 ID")
+    _log.info("按 Ctrl+C 停止")
+    _log.info("开始读取循环")
 
     try:
         while True:
             distance = read_distance(got, SENSOR_ID)
             if distance == -1:
-                print(f"  [{time.strftime('%H:%M:%S')}] 距离: 未获取到数据")
+                _log.bind(sensor_id=SENSOR_ID, distance_cm=-1).warning("未获取到数据")
             else:
-                print(f"  [{time.strftime('%H:%M:%S')}] 距离: {distance:.1f} cm")
+                _log.bind(sensor_id=SENSOR_ID, distance_cm=distance).info("距离读数")
             time.sleep(0.5)
     except KeyboardInterrupt:
-        print("\n[INFO] 已停止")
+        _log.success("已停止")
 
 
 if __name__ == "__main__":
