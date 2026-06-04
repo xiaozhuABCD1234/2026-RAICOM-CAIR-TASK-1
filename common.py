@@ -1,15 +1,18 @@
 # 导入 cv2（OpenCV），用于图像处理
 import cv2
+
 # 导入 numpy，用于数组操作
 import numpy as np
+
 # 导入 time 模块，用于延时和超时控制
 import time
+
 # 导入 socket 模块，用于端口连通性检测
 import socket
 
 from config import ROBOT_IP
+
 # 分隔线字符 × 54，用于终端输出美观
-SEP = "─" * 54
 
 # 颜色名称到 HSV 范围的映射
 # 格式: {颜色: [(H_min, S_min, V_min, H_max, S_max, V_max), ...]}

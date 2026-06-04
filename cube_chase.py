@@ -1,22 +1,27 @@
 # 导入 cv2（OpenCV），用于图像处理
 import cv2
+
 # 导入 numpy，用于数组操作
 import numpy as np
+
 # 导入 ugot 库，用于控制 UGOT 机器人
 from ugot import ugot
+
 # 导入 re 模块，用于正则表达式匹配（校验 IP 地址）
 import re
+
 # 导入 time 模块，用于延时
 import time
+
 # 导入 threading 模块，用于双线程异步架构
 import threading
 
 # 从共享模块导入常量、工具函数和检测函数
-from common import (ROBOT_IP, SEP, COLOR_RANGES, wait_port, detect_cubes)
+from common import ROBOT_IP, SEP, COLOR_RANGES, wait_port, detect_cubes
 from logger import get_logger
 
 # 追踪参数
-SEARCH_SPEED = 15
+SEARCH_SPEED = 30
 # PID 控制的比例系数、积分系数、微分系数
 KP, KI, KD = 0.25, 0, 0.05
 # 追击前进速度（cm/s）
@@ -59,20 +64,25 @@ def chase(robot, color, headless=False):
 
     pid_dist = robot.create_pid_controller()
     pid_dist.set_pid(DISTANCE_KP, DISTANCE_KI, DISTANCE_KD)
-    _log.bind(pid="distance", kp=DISTANCE_KP, ki=DISTANCE_KI, kd=DISTANCE_KD,
-              target_cm=TARGET_DISTANCE).info("距离 PID 配置")
+    _log.bind(
+        pid="distance",
+        kp=DISTANCE_KP,
+        ki=DISTANCE_KI,
+        kd=DISTANCE_KD,
+        target_cm=TARGET_DISTANCE,
+    ).info("距离 PID 配置")
 
     # ===== 控制线程：50ms 周期发送电机指令 =====
     @_log.catch(reraise=False)
     def control_loop():
         with _log.contextualize(thread="control"):
-            search_dir = 2
-            search_since = 0
             while not stop_event.is_set():
                 # ===== 距离传感器：PID 控制前进速度，精确维持目标距离 =====
                 distance = robot.read_distance_data(SENSOR_ID)
                 if distance <= 0:
-                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical("距离传感器无数据")
+                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
+                        "距离传感器无数据"
+                    )
                     stop_event.set()
                     return
                 dist_error = round(pid_dist.update(distance - TARGET_DISTANCE))
@@ -83,19 +93,13 @@ def chase(robot, color, headless=False):
                     area = state["area"]
 
                 if not found:
-                    now = time.time()
-                    if now - search_since > 3:
-                        search_dir = 3 if search_dir == 2 else 2
-                        search_since = now
-                    robot.mecanum_move_turn(0, 0, search_dir, SEARCH_SPEED)
+                    robot.mecanum_move_turn(0, 0, 2, SEARCH_SPEED)
                     _log.bind(
                         state="searching",
-                        direction="left" if search_dir == 2 else "right",
                         distance_cm=distance,
                         dist_error=dist_error,
                     ).trace("搜索旋转")
                 else:
-                    search_since = time.time()
                     dic = round(pid.update(offset))
 
                     turn_speed = min(abs(dic), TURN_SPEED_MAX)
@@ -223,7 +227,9 @@ def chase(robot, color, headless=False):
                         state["area"] = area
                         state["found"] = True
                         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                        cv2.line(frame, (center_x, 0), (center_x, frame_h), (255, 255, 0), 1)
+                        cv2.line(
+                            frame, (center_x, 0), (center_x, frame_h), (255, 255, 0), 1
+                        )
                         state["frame"] = frame
                     else:
                         state["found"] = False
@@ -235,7 +241,9 @@ def chase(robot, color, headless=False):
     try:
         ctrl_thread.start()
         vis_thread.start()
-        while vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set():
+        while (
+            vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set()
+        ):
             if not headless:
                 with lock:
                     display_frame = state["frame"]
@@ -250,7 +258,10 @@ def chase(robot, color, headless=False):
         _log.info("收到停止信号")
     finally:
         stop_event.set()
-        robot.stop_chassis()
+        try:
+            robot.stop_chassis()
+        except Exception:
+            pass
         if not headless:
             cv2.destroyAllWindows()
         _log.success("已停止")
@@ -267,12 +278,12 @@ def main():
 
     color = args[0] if args else "red"
     if color not in COLOR_RANGES:
-        _log.bind(color=color, supported=list(COLOR_RANGES.keys())).error("不支持的颜色")
+        _log.bind(color=color, supported=list(COLOR_RANGES.keys())).error(
+            "不支持的颜色"
+        )
         return
 
-    _log.success(SEP)
     _log.bind(color=color).success("UGOT 方块追踪")
-    _log.success(SEP)
 
     robot = ugot.UGOT()
 
@@ -304,8 +315,10 @@ def main():
             robot.initialize(device_ip=ip)
             _log.success("初始化成功")
             break
-        except Exception as e:
-            _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning("初始化尝试失败")
+        except Exception:
+            _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning(
+                "初始化尝试失败"
+            )
             if attempt < 2:
                 time.sleep(2)
     else:

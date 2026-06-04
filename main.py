@@ -96,8 +96,10 @@ def main():
             robot.initialize(device_ip=ip)
             _log.success("初始化成功")
             break
-        except Exception as e:
-            _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning("初始化尝试失败")
+        except Exception:
+            _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning(
+                "初始化尝试失败"
+            )
             if attempt < 2:
                 time.sleep(2)
     else:
@@ -162,11 +164,20 @@ def main():
                 was_lost = False
 
                 if dic > 0:
-                    _log.bind(offset=offset, dic=dic, direction="left", line_type=line_type).trace("巡线修正")
+                    _log.bind(
+                        offset=offset, dic=dic, direction="left", line_type=line_type
+                    ).trace("巡线修正")
                 elif dic < 0:
-                    _log.bind(offset=offset, dic=abs(dic), direction="right", line_type=line_type).trace("巡线修正")
+                    _log.bind(
+                        offset=offset,
+                        dic=abs(dic),
+                        direction="right",
+                        line_type=line_type,
+                    ).trace("巡线修正")
                 else:
-                    _log.bind(offset=offset, dic=0, direction="straight", line_type=line_type).trace("巡线修正")
+                    _log.bind(
+                        offset=offset, dic=0, direction="straight", line_type=line_type
+                    ).trace("巡线修正")
 
             time.sleep(0.05)
 
