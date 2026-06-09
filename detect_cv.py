@@ -10,7 +10,7 @@ import re
 import time
 
 # 从共享模块导入常量、工具函数和检测函数
-from common import (ROBOT_IP, wait_port, detect_cubes)
+from utils import (ROBOT_IP, wait_port, detect_cubes)
 from logger import get_logger
 
 _log = get_logger()

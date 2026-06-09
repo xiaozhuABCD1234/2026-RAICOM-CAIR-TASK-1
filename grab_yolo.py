@@ -1,59 +1,28 @@
-# 导入 cv2（OpenCV），用于图像处理
 import cv2
-
-# 导入 numpy，用于数组操作
 import numpy as np
-
-# 导入 ugot 库，用于控制 UGOT 机器人
 from ugot import ugot
-
-# 导入 re 模块，用于正则表达式匹配（校验 IP 地址）
 import re
-
-# 导入 time 模块，用于延时
 import time
-
-# 导入 threading 模块，用于双线程异步架构
 import threading
+import sys
 
-# 从共享模块导入常量、工具函数和检测函数
-from common import ROBOT_IP, COLOR_RANGES, wait_port, detect_cubes
+from utils import ROBOT_IP, COLOR_RANGES, wait_port, detect_cubes
 from logger import get_logger
 
-# 追踪参数
-SEARCH_SPEED = 30
-# PID 控制的比例系数、积分系数、微分系数
-KP, KI, KD = 0.25, 0, 0.05
-# 追击前进速度（cm/s）
-CHASE_SPEED = 15
-# 转向速度上限，防止 PID 输出过大
-TURN_SPEED_MAX = 40
-# 红外测距传感器 ID（与 distance_sensor.py 一致）
-SENSOR_ID = 41
-# 目标距离（cm），距离 PID 的目标值
-TARGET_DISTANCE = 10
-# 距离 PID 的比例系数、积分系数、微分系数
-DISTANCE_KP, DISTANCE_KI, DISTANCE_KD = 2.0, 0, 0.1
-# 后退速度（cm/s），太近时向后修正
-BACKWARD_SPEED = 7
+from chase_cv import SEARCH_SPEED, KP, KI, KD, CHASE_SPEED, TURN_SPEED_MAX, \
+    SENSOR_ID, TARGET_DISTANCE, DISTANCE_KP, DISTANCE_KI, DISTANCE_KD, \
+    BACKWARD_SPEED, get_largest_cube
+from control_servo import SERVO_IDS, JOINTS, DEFAULT_DURATION, \
+    set_servo_position, set_all_servo_positions
+
+GRAB_DISTANCE_THRESHOLD = 10
+GRAB_OFFSET_THRESHOLD = 20
+GRAB_STABLE_FRAMES = 10
 
 _log = get_logger()
 
 
-def get_largest_cube(cubes):
-    """从检测结果中选取面积最大的立方体。"""
-    if not cubes:
-        return None
-    return max(cubes, key=lambda c: c[4])
-
-
-def chase(robot, color, headless=False):
-    """追踪指定颜色的立方体，使机器人始终正对目标。"""
-    _log.bind(color=color, headless=headless).info("开始追踪")
-    _log.info("按 Ctrl+C 停止")
-    if headless:
-        _log.info("无头模式，不显示画面")
-
+def track_and_wait(robot, color, headless, grab_event):
     state = {"offset": None, "area": 0, "found": False, "frame": None}
     lock = threading.Lock()
     stop_event = threading.Event()
@@ -72,19 +41,17 @@ def chase(robot, color, headless=False):
         target_cm=TARGET_DISTANCE,
     ).info("距离 PID 配置")
 
-    # ===== 控制线程：50ms 周期发送电机指令 =====
     @_log.catch(reraise=False)
     def control_loop():
+        stable_counter = 0
         with _log.contextualize(thread="control"):
             while not stop_event.is_set():
-                # ===== 距离传感器：PID 控制前进速度，精确维持目标距离 =====
                 distance = robot.read_distance_data(SENSOR_ID)
                 if distance <= 0:
-                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
-                        "距离传感器无数据"
-                    )
+                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical("距离传感器无数据")
                     stop_event.set()
                     return
+
                 dist_error = round(pid_dist.update(distance - TARGET_DISTANCE))
 
                 with lock:
@@ -93,15 +60,11 @@ def chase(robot, color, headless=False):
                     area = state["area"]
 
                 if not found:
+                    stable_counter = 0
                     robot.mecanum_move_turn(0, 0, 2, SEARCH_SPEED)
-                    _log.bind(
-                        state="searching",
-                        distance_cm=distance,
-                        dist_error=dist_error,
-                    ).trace("搜索旋转")
+                    _log.bind(state="searching", distance_cm=distance, dist_error=dist_error).trace("搜索旋转")
                 else:
                     dic = round(pid.update(offset))
-
                     turn_speed = min(abs(dic), TURN_SPEED_MAX)
 
                     if dist_error < 0:
@@ -109,6 +72,7 @@ def chase(robot, color, headless=False):
                     elif dist_error > 0:
                         backward = int(min(dist_error, BACKWARD_SPEED))
                         robot.mecanum_move_speed(1, backward)
+                        stable_counter = 0
                         _log.bind(
                             state="backward",
                             distance_cm=distance,
@@ -126,15 +90,40 @@ def chase(robot, color, headless=False):
                     if dist_forward == 0:
                         if turn_speed < 3:
                             robot.stop_chassis()
-                            _log.bind(
-                                state="idle",
-                                distance_cm=distance,
-                                offset_px=offset,
-                                pid_h=dic,
-                                area_px=area,
-                                dist_error=dist_error,
-                            ).trace("待命")
+                            abs_offset = abs(offset) if offset else 999
+                            if distance <= GRAB_DISTANCE_THRESHOLD and abs_offset < GRAB_OFFSET_THRESHOLD:
+                                stable_counter += 1
+                                _log.bind(
+                                    state="idle",
+                                    distance_cm=distance,
+                                    offset_px=offset,
+                                    pid_h=dic,
+                                    area_px=area,
+                                    stable=stable_counter,
+                                    needed=GRAB_STABLE_FRAMES,
+                                ).trace("待命就绪")
+                                if stable_counter >= GRAB_STABLE_FRAMES:
+                                    _log.bind(
+                                        distance_cm=distance,
+                                        offset_px=offset,
+                                    ).success("已对准方块，准备抓取")
+                                    grab_event.set()
+                                    stop_event.set()
+                                    return
+                            else:
+                                stable_counter = 0
+                                _log.bind(
+                                    state="idle",
+                                    distance_cm=distance,
+                                    offset_px=offset,
+                                    pid_h=dic,
+                                    area_px=area,
+                                    dist_error=dist_error,
+                                    stable=stable_counter,
+                                    needed=GRAB_STABLE_FRAMES,
+                                ).trace("待命")
                         elif dic < 0:
+                            stable_counter = 0
                             robot.mecanum_move_turn(0, 0, 3, turn_speed)
                             _log.bind(
                                 state="turn_right",
@@ -146,6 +135,7 @@ def chase(robot, color, headless=False):
                                 turn_speed=turn_speed,
                             ).trace("右转对准")
                         else:
+                            stable_counter = 0
                             robot.mecanum_move_turn(0, 0, 2, turn_speed)
                             _log.bind(
                                 state="turn_left",
@@ -157,6 +147,7 @@ def chase(robot, color, headless=False):
                                 turn_speed=turn_speed,
                             ).trace("左转对准")
                     elif turn_speed < 3:
+                        stable_counter = 0
                         robot.mecanum_move_speed(0, dist_forward)
                         _log.bind(
                             state="forward",
@@ -168,6 +159,7 @@ def chase(robot, color, headless=False):
                             forward_speed=dist_forward,
                         ).trace("前进")
                     elif dic < 0:
+                        stable_counter = 0
                         robot.mecanum_move_turn(0, dist_forward, 3, turn_speed)
                         _log.bind(
                             state="forward_right",
@@ -180,6 +172,7 @@ def chase(robot, color, headless=False):
                             turn_speed=turn_speed,
                         ).trace("前进右转")
                     else:
+                        stable_counter = 0
                         robot.mecanum_move_turn(0, dist_forward, 2, turn_speed)
                         _log.bind(
                             state="forward_left",
@@ -194,7 +187,6 @@ def chase(robot, color, headless=False):
 
                 stop_event.wait(0.05)
 
-    # ===== 视觉线程：取帧 + 检测 =====
     @_log.catch(reraise=False)
     def vision_loop():
         with _log.contextualize(thread="vision"):
@@ -227,9 +219,7 @@ def chase(robot, color, headless=False):
                         state["area"] = area
                         state["found"] = True
                         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                        cv2.line(
-                            frame, (center_x, 0), (center_x, frame_h), (255, 255, 0), 1
-                        )
+                        cv2.line(frame, (center_x, 0), (center_x, frame_h), (255, 255, 0), 1)
                         state["frame"] = frame
                     else:
                         state["found"] = False
@@ -238,24 +228,30 @@ def chase(robot, color, headless=False):
     ctrl_thread = threading.Thread(target=control_loop, daemon=True)
     vis_thread = threading.Thread(target=vision_loop, daemon=True)
 
+    ctrl_thread.start()
+    vis_thread.start()
+
+    _log.info("进入追踪主循环")
     try:
-        ctrl_thread.start()
-        vis_thread.start()
-        while (
-            vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set()
-        ):
-            if not headless:
+        while vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set():
+            if headless:
+                if grab_event.wait(0.05):
+                    break
+            else:
                 with lock:
                     display_frame = state["frame"]
                 if display_frame is not None:
-                    cv2.imshow(f"Cube Chase - {color}", display_frame)
-                    if cv2.waitKey(50) & 0xFF == ord("q"):
+                    cv2.imshow(f"Track & Grab - {color}", display_frame)
+                    key = cv2.waitKey(50) & 0xFF
+                    if key == ord("q"):
+                        _log.info("用户按下 Q 键，停止追踪")
                         stop_event.set()
                         break
-            else:
-                stop_event.wait(0.05)
+                else:
+                    stop_event.wait(0.05)
     except KeyboardInterrupt:
         _log.info("收到停止信号")
+        stop_event.set()
     finally:
         stop_event.set()
         try:
@@ -264,13 +260,9 @@ def chase(robot, color, headless=False):
             pass
         if not headless:
             cv2.destroyAllWindows()
-        _log.success("已停止")
 
 
 def main():
-    """入口：解析命令行参数，连接机器人，启动追踪。"""
-    import sys
-
     args = sys.argv[1:]
     headless = "--headless" in args
     if headless:
@@ -278,14 +270,14 @@ def main():
 
     color = args[0] if args else "red"
     if color not in COLOR_RANGES:
-        _log.bind(color=color, supported=list(COLOR_RANGES.keys())).error(
-            "不支持的颜色"
-        )
+        _log.bind(color=color, supported=list(COLOR_RANGES.keys())).error("不支持的颜色")
         return
 
-    _log.bind(color=color).success("UGOT 方块追踪")
+    _log.success("=" * 48)
+    _log.success("UGOT 追踪 + 抓取")
+    _log.success("=" * 48)
 
-    robot = ugot.UGOT()
+    got = ugot.UGOT()
 
     ip = ROBOT_IP
     if ip:
@@ -295,7 +287,7 @@ def main():
         _log.bind(ip=ip, source="config").info("使用指定 IP")
     else:
         _log.bind(action="scan").info("正在扫描局域网中的 UGOT 设备...")
-        devices = robot.scan_device()
+        devices = got.scan_device()
         if not devices:
             _log.error("未找到任何 UGOT 设备")
             return
@@ -312,13 +304,11 @@ def main():
     _log.bind(action="init_sdk").info("正在初始化 SDK...")
     for attempt in range(3):
         try:
-            robot.initialize(device_ip=ip)
+            got.initialize(device_ip=ip)
             _log.success("初始化成功")
             break
         except Exception:
-            _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning(
-                "初始化尝试失败"
-            )
+            _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning("初始化尝试失败")
             if attempt < 2:
                 time.sleep(2)
     else:
@@ -326,13 +316,61 @@ def main():
         return
 
     _log.bind(action="open_camera").info("正在打开摄像头...")
-    robot.open_camera()
+    got.open_camera()
     _log.success("摄像头已打开")
     time.sleep(1)
 
-    _log.info("进入追踪主循环")
-    chase(robot, color, headless=headless)
-    _log.info("追踪结束")
+    try:
+        _log.bind(joint1=90, joint2=90, joint3=0).info("机械臂归位")
+        set_all_servo_positions(got, 90, 90, 0)
+        time.sleep(0.5)
+
+        _log.bind(action="clamp_release").info("夹手张开")
+        got.mechanical_clamp_release()
+        time.sleep(0.3)
+
+        grab_event = threading.Event()
+        track_and_wait(got, color, headless, grab_event)
+
+        if not grab_event.is_set():
+            _log.info("未触发抓取，结束")
+            return
+
+        _log.info("开始执行抓取序列")
+        time.sleep(0.5)
+
+        _log.bind(servo_id=52, from_deg=90, to_deg=160, duration_ms=2000).info("关节2 下压")
+        set_servo_position(got, 52, 160, duration_ms=2000)
+
+        _log.bind(action="clamp_close").info("夹手闭合")
+        got.mechanical_clamp_close()
+        time.sleep(0.5)
+
+        _log.bind(joint1=90, joint2=20, joint3=-80, duration_ms=1500).info("抬起")
+        set_all_servo_positions(got, 90, 20, -80, duration_ms=1500)
+
+        _log.success("抓取完成")
+
+    except KeyboardInterrupt:
+        _log.info("收到停止信号")
+    except Exception as e:
+        _log.opt(exception=True).error("发生异常")
+    finally:
+        _log.bind(joint1=90, joint2=20, joint3=-80).info("复位")
+        set_all_servo_positions(got, 90, 20, -80)
+
+    _log.success("=" * 48)
+    _log.success("追踪 + 抓取结束")
+    _log.success("=" * 48)
+
+    if not headless:
+        _log.info("按 Ctrl+C 退出")
+        try:
+            while True:
+                cv2.waitKey(100)
+        except KeyboardInterrupt:
+            pass
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

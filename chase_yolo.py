@@ -8,7 +8,7 @@ import numpy as np
 from ugot import ugot
 from ultralytics import YOLO
 
-from common import ROBOT_IP, wait_port
+from utils import ROBOT_IP, wait_port
 from logger import get_logger
 
 SEARCH_SPEED = 30

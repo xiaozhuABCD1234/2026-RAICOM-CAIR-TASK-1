@@ -13,9 +13,9 @@ import numpy as np
 from ugot import ugot
 from ultralytics import YOLO
 
-from common import ROBOT_IP
+from utils import ROBOT_IP
 from logger import get_logger
-from pt_cube_detector import CLASS_NAMES, draw_results
+from detect_yolo import CLASS_NAMES, draw_results
 
 _log = get_logger()
 

@@ -8,7 +8,7 @@ import re
 import time
 
 # 从共享模块导入常量、工具函数
-from common import ROBOT_IP, wait_port
+from utils import ROBOT_IP, wait_port
 from logger import get_logger
 
 # 短分隔线字符 × 10

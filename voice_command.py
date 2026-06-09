@@ -4,7 +4,7 @@ import sys
 
 from ugot import ugot
 
-from common import ROBOT_IP, wait_port
+from utils import ROBOT_IP, wait_port
 from logger import get_logger
 
 _log = get_logger()
