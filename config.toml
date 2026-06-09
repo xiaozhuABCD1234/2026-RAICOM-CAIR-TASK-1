@@ -1,5 +1,7 @@
 [network]
-robot_ip = "192.168.1.22"
+# robot_ip = "192.168.1.22"
+robot_ip = "10.165.165.121"
+# robot_ip = "192.168.1.67"
 
 [logging]
 # TRACE | DEBUG | INFO | SUCCESS | WARNING | ERROR | CRITICAL

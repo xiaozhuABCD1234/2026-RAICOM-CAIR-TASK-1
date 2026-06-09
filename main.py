@@ -8,7 +8,7 @@ import re
 import time
 
 # 从共享模块导入常量、工具函数
-from common import ROBOT_IP, SEP, wait_port
+from common import ROBOT_IP, wait_port
 from logger import get_logger
 
 # 短分隔线字符 × 10
@@ -62,9 +62,7 @@ def lost_line(robot):
 
 # 主函数：初始化连接 → 加载模型 → PID 巡线循环
 def main():
-    _log.success(SEP)
     _log.success("UGOT 麦伦车 - PID 巡线程序")
-    _log.success(SEP)
 
     robot = ugot.UGOT()
 
@@ -125,6 +123,8 @@ def main():
     dic = 0
     cross_count = 0
     last_is_cross = False
+    cross_stable_frames = 0
+    CROSS_CONFIRM_FRAMES = 1
     cooldown_until = 0
 
     _log.info("开始巡线主循环")
@@ -134,13 +134,20 @@ def main():
             offset, line_type, _, _ = info
 
             is_cross = line_type == 2 or line_type == 3
-            rising = is_cross and not last_is_cross
-            last_is_cross = is_cross
+            if is_cross:
+                cross_stable_frames += 1
+            else:
+                cross_stable_frames = 0
+                last_is_cross = False
+
+            rising = is_cross and cross_stable_frames >= CROSS_CONFIRM_FRAMES and not last_is_cross
+            if is_cross and rising:
+                last_is_cross = True
 
             if rising and cross_count < 3 and time.time() > cooldown_until:
                 cross_count += 1
-                robot.mecanum_move_speed(0, SPEED)
-                time.sleep(1)
+                robot.mecanum_move_speed_times(0, SPEED, 22, 1)
+                time.sleep(0.8)
 
                 _log.bind(cross_count=cross_count, line_type=line_type).info("路口右转")
                 turn_right(robot)
@@ -148,6 +155,11 @@ def main():
                 if cross_count >= 3:
                     robot.stop_chassis()
                     _log.bind(cross_count=3).success("已完成 3 个路口，停止巡线")
+                    _log.info("开始进入取货区")
+                    robot.mecanum_move_speed_times(0, SPEED, 40, 1)
+                    time.sleep(1.2)
+                    robot.stop_chassis()
+                    _log.success("已到达取货区")
                     break
                 continue
 
@@ -190,8 +202,5 @@ def main():
             _log.success("已停止")
         except Exception:
             _log.warning("停止时连接已断开")
-        _log.success(SEP)
-
-
 if __name__ == "__main__":
     main()

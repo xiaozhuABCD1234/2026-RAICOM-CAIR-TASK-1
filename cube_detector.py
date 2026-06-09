@@ -10,7 +10,7 @@ import re
 import time
 
 # 从共享模块导入常量、工具函数和检测函数
-from common import (ROBOT_IP, SEP, wait_port, detect_cubes)
+from common import (ROBOT_IP, wait_port, detect_cubes)
 from logger import get_logger
 
 _log = get_logger()
@@ -33,10 +33,8 @@ def main():
 
     color = sys.argv[1] if len(sys.argv) > 1 else "red"
 
-    _log.success(SEP)
     _log.success("UGOT 立方体颜色识别")
     _log.bind(color=color).success(f"检测颜色: {color}")
-    _log.success(SEP)
 
     robot = ugot.UGOT()
 
@@ -113,8 +111,5 @@ def main():
         except Exception:
             _log.warning("停止时连接已断开")
         cv2.destroyAllWindows()
-        _log.success(SEP)
-
-
 if __name__ == "__main__":
     main()
