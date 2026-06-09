@@ -1,10 +1,11 @@
-"""追踪 AprilTag → 到达目标后自动巡线
+"""从取货区导航到 A/B 卸货区：追踪 AprilTag → 自动巡线
 
 用法:
-    python tag_chase.py                          # 默认追踪 id=0 的 tag
-    python tag_chase.py --headless               # 无头模式，不显示画面
-    python tag_chase.py --target-id 1            # 追踪 id=1 的 tag
-    python tag_chase.py --target-dist 20         # 目标距离 20cm
+    python goto_zone.py                          # 默认追踪 id=0 的 tag，去 B 区
+    python goto_zone.py --headless               # 无头模式，不显示画面
+    python goto_zone.py --target-id 1            # 追踪 id=1 的 tag
+    python goto_zone.py --target-dist 20         # 目标距离 20cm
+    python goto_zone.py --goto-a                 # 去 A 区（默认去 B 区）
 """
 
 import argparse
@@ -31,6 +32,17 @@ TARGET_TAG_ID = 0  # 默认追踪的 AprilTag ID
 # ── 巡线参数 ──
 LINE_KP, LINE_KI, LINE_KD = 0.23, 0, 0  # 巡线 PID（当前只有 P 有效）
 LINE_SPEED = 30  # 巡线前进速度 cm/s
+
+# ── 距离阈值 ──
+STOP_DISTANCE = 8  # 巡线时到达目的地距离 cm
+CHASE_STOP_DISTANCE = 9.5  # 追踪停止距离 cm
+CHASE_SLOW_DISTANCE = 15  # 追踪减速距离 cm
+
+# ── 路口动作参数 ──
+CROSS_FORWARD_SHORT = 16  # 路口短前进距离 cm
+CROSS_FORWARD_LONG = 22  # 路口长前进距离 cm
+TURN_SPEED = 40  # 路口转弯速度
+TURN_ANGLE = 90  # 路口转弯角度
 
 _log = get_logger()
 
@@ -80,7 +92,7 @@ def chase(robot, headless, target_id, target_dist):
                     _id, cx, cy = tag[:3]
                     area = tag[5]
 
-                    distance = robot.read_distance_data(SENSOR_ID)
+                    distance = read_distance(robot)
                     if distance <= 0:
                         _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
                             "距离传感器无数据"
@@ -91,10 +103,10 @@ def chase(robot, headless, target_id, target_dist):
                     dic = round(pid.update(offset_px))
                     z_speed = dic
 
-                    if distance < 9.5:
+                    if distance < CHASE_STOP_DISTANCE:
                         y_speed = 0
-                    elif distance < 15:
-                        y_speed = int(np.clip((distance - 9.5) * 3, 5, CHASE_SPEED))
+                    elif distance < CHASE_SLOW_DISTANCE:
+                        y_speed = int(np.clip((distance - CHASE_STOP_DISTANCE) * 3, 5, CHASE_SPEED))
                     else:
                         y_speed = CHASE_SPEED
 
@@ -106,7 +118,7 @@ def chase(robot, headless, target_id, target_dist):
                             offset_px=offset_px,
                             area=area,
                         ).trace("待命")
-                        if distance < 9.5:
+                        if distance < CHASE_STOP_DISTANCE:
                             reached = True
                             break
                     else:
@@ -275,39 +287,38 @@ def line_follow(robot, gotoA: bool):
             info = robot.get_single_track_total_info()
             offset, line_type, _, _ = info
             distance = read_distance(robot)
-            if distance < 8:
+            if distance < STOP_DISTANCE:
                 _log.info("到达目的地")
                 break
 
-            is_cross = (line_type == 2) or (line_type == 3)
+            is_cross = line_type in (2, 3)
             if is_cross:
                 cross_count += 1
-            if gotoA and is_cross:
-                if cross_count <= 2:
-                    _log.debug("到A区去")
-                    robot.mecanum_move_speed_times(0, LINE_SPEED, 22, 1)
-                    time.sleep(0.8)
-                    _log.bind(action="turn_right", speed=40, angle=90).debug("右转")
-                    robot.mecanum_turn_speed_times(3, 40, 90, 2)
-                    time.sleep(1)
+                _log.bind(cross_count=cross_count, gotoA=gotoA).debug("检测到路口")
+
+                # 判断是否需要右转
+                if gotoA:
+                    should_turn = cross_count <= 2
                 else:
-                    robot.mecanum_move_speed_times(0, LINE_SPEED, 16, 1)
+                    should_turn = cross_count <= 3 and cross_count != 2
+
+                # 判断是否到达目的地
+                if gotoA:
+                    arrived = cross_count > 2
+                else:
+                    arrived = cross_count > 3
+
+                if arrived:
+                    robot.mecanum_move_speed_times(0, LINE_SPEED, CROSS_FORWARD_SHORT, 1)
                     time.sleep(0.8)
                     _log.info("到达目的地")
                     break
-            if (not gotoA) and is_cross:
-                if cross_count <= 3 and cross_count != 2:
-                    _log.debug("到B区去")
-                    robot.mecanum_move_speed_times(0, LINE_SPEED, 22, 1)
+                elif should_turn:
+                    robot.mecanum_move_speed_times(0, LINE_SPEED, CROSS_FORWARD_LONG, 1)
                     time.sleep(0.8)
-                    _log.bind(action="turn_right", speed=40, angle=90).debug("右转")
-                    robot.mecanum_turn_speed_times(3, 40, 90, 2)
+                    _log.bind(action="turn_right", speed=TURN_SPEED, angle=TURN_ANGLE).debug("右转")
+                    robot.mecanum_turn_speed_times(3, TURN_SPEED, TURN_ANGLE, 2)
                     time.sleep(1)
-                elif cross_count > 3:
-                    robot.mecanum_move_speed_times(0, LINE_SPEED, 16, 1)
-                    time.sleep(0.8)
-                    _log.info("到达目的地")
-                    break
             # ── 丢线处理 ──
             # line_type == 0 表示摄像头没检测到车道线
             # 策略：原地右旋，等待摄像头重新捕获车道线
@@ -357,7 +368,7 @@ def line_follow(robot, gotoA: bool):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="UGOT AprilTag 追踪")
+    parser = argparse.ArgumentParser(description="从取货区导航到 A/B 卸货区")
     parser.add_argument("--headless", action="store_true", help="无头模式，不显示画面")
     parser.add_argument(
         "--target-id",
@@ -371,12 +382,18 @@ def main():
         default=TARGET_DISTANCE,
         help=f"目标距离 cm (默认 {TARGET_DISTANCE})",
     )
+    parser.add_argument(
+        "--goto-a",
+        action="store_true",
+        help="去 A 区（默认去 B 区）",
+    )
     args = parser.parse_args()
 
-    _log.success("UGOT AprilTag 追踪")
+    _log.success("从取货区导航到卸货区")
     _log.bind(
         tag_id=args.target_id,
         target_dist=args.target_dist,
+        target_zone="A" if args.goto_a else "B",
     ).info("配置参数")
 
     robot = ugot.UGOT()
@@ -431,13 +448,13 @@ def main():
     _log.info("追踪结束")
 
     if reached:
-        _log.bind(action="turn_left", speed=40, angle=90).debug("左转")
-        robot.mecanum_turn_speed_times(2, 40, 90, 2)
+        _log.bind(action="turn_left", speed=TURN_SPEED, angle=TURN_ANGLE).debug("左转")
+        robot.mecanum_turn_speed_times(2, TURN_SPEED, TURN_ANGLE, 2)
         time.sleep(1)
         _log.success("已到达目标位置，开始巡线")
         robot.stop_chassis()
         time.sleep(0.5)
-        line_follow(robot, False)
+        line_follow(robot, args.goto_a)
     else:
         _log.info("未到达目标位置，跳过巡线")
 

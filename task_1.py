@@ -82,6 +82,23 @@ _SHORT_COLORS = ["红", "绿", "蓝"]
 LINE_KP, LINE_KI, LINE_KD = 0.23, 0, 0
 LINE_SPEED = 30
 
+# ── 卸货区导航 (goto_zone.py) ──
+STOP_DISTANCE = 8  # 巡线时到达目的地距离 cm
+CROSS_FORWARD_SHORT = 16  # 路口短前进距离 cm
+CROSS_FORWARD_LONG = 22  # 路口长前进距离 cm
+TURN_SPEED = 40  # 路口转弯速度
+TURN_ANGLE = 90  # 路口转弯角度
+
+# ── AprilTag 追踪 (goto_zone.py) ──
+APRILTAG_SEARCH_SPEED = 15  # 搜索旋转速度
+APRILTAG_KP, APRILTAG_KI, APRILTAG_KD = 0.12, 0, 0.10  # 追踪 PID
+APRILTAG_CHASE_SPEED = 20  # 追踪前进速度 cm/s
+APRILTAG_TURN_SPEED_MAX = 30  # 追踪转弯速度上限
+APRILTAG_TARGET_DISTANCE = 9.3  # 追踪目标距离 cm
+APRILTAG_STOP_DISTANCE = 9.5  # 追踪停止距离 cm
+APRILTAG_SLOW_DISTANCE = 15  # 追踪减速距离 cm
+TARGET_TAG_ID = 0  # 目标 AprilTag ID
+
 # ── 舵机 (control_servo.py) ──
 SERVO_IDS = [51, 52, 53]
 DEFAULT_DURATION = 800
@@ -152,7 +169,9 @@ def set_servo_position(got, servo_id, angle, duration_ms=DEFAULT_DURATION, wait=
 
 def set_all_servo_positions(got, a1, a2, a3, duration_ms=DEFAULT_DURATION, wait=True):
     angles = [a1, a2, a3]
-    _log.bind(joints=dict(zip(SERVO_IDS, angles)), duration_ms=duration_ms).debug("多舵机移动")
+    _log.bind(joints=dict(zip(SERVO_IDS, angles)), duration_ms=duration_ms).debug(
+        "多舵机移动"
+    )
     for sid, ang in zip(SERVO_IDS, angles):
         got.turn_servo_angle(sid, ang, duration_ms, wait=False)
     if wait:
@@ -171,7 +190,7 @@ def voice_command_phase(robot):
 
     _log.info("正在监听语音...")
     try:
-        resp = robot.AUDIO.setAudioAsr(duration=20000)
+        resp = robot.AUDIO.setAudioAsr(duration=10000)
         _log.bind(code=resp.code, msg=resp.msg, data=resp.data).info("ASR 原始响应")
         text = resp.data.strip() if resp.code == 0 and resp.data else ""
     except Exception:
@@ -229,7 +248,11 @@ def line_follow_phase(robot):
                 cross_stable_frames = 0
                 last_is_cross = False
 
-            rising = is_cross and cross_stable_frames >= CROSS_CONFIRM_FRAMES and not last_is_cross
+            rising = (
+                is_cross
+                and cross_stable_frames >= CROSS_CONFIRM_FRAMES
+                and not last_is_cross
+            )
             if is_cross and rising:
                 last_is_cross = True
 
@@ -297,7 +320,13 @@ def track_and_grab_phase(robot, color):
 
     pid_dist = robot.create_pid_controller()
     pid_dist.set_pid(DISTANCE_KP, DISTANCE_KI, DISTANCE_KD)
-    _log.bind(pid="distance", kp=DISTANCE_KP, ki=DISTANCE_KI, kd=DISTANCE_KD, target=GRAB_DISTANCE_THRESHOLD).info("距离 PID")
+    _log.bind(
+        pid="distance",
+        kp=DISTANCE_KP,
+        ki=DISTANCE_KI,
+        kd=DISTANCE_KD,
+        target=GRAB_DISTANCE_THRESHOLD,
+    ).info("距离 PID")
 
     # ── 控制线程 ──
     def control_loop():
@@ -346,46 +375,93 @@ def track_and_grab_phase(robot, color):
                 if dist_forward == 0:
                     if turn_speed < 3:
                         robot.stop_chassis()
-                        if distance <= GRAB_DISTANCE_THRESHOLD + GRAB_DISTANCE_TOLERANCE and abs(offset) < GRAB_OFFSET_THRESHOLD:
+                        if (
+                            distance
+                            <= GRAB_DISTANCE_THRESHOLD + GRAB_DISTANCE_TOLERANCE
+                            and abs(offset) < GRAB_OFFSET_THRESHOLD
+                        ):
                             stable_counter += 1
-                            _log.bind(state="idle", dist=distance, offset=offset, stable=stable_counter, need=GRAB_STABLE_FRAMES).trace("待命就绪")
+                            _log.bind(
+                                state="idle",
+                                dist=distance,
+                                offset=offset,
+                                stable=stable_counter,
+                                need=GRAB_STABLE_FRAMES,
+                            ).trace("待命就绪")
                             if stable_counter >= GRAB_STABLE_FRAMES:
-                                _log.bind(dist=distance, offset=offset).success("已对准，准备抓取")
+                                _log.bind(dist=distance, offset=offset).success(
+                                    "已对准，准备抓取"
+                                )
                                 grab_event.set()
                                 stop_event.set()
                                 return
                         else:
                             stable_counter = 0
-                            _log.bind(state="idle", dist=distance, offset=offset).trace("待命")
+                            _log.bind(state="idle", dist=distance, offset=offset).trace(
+                                "待命"
+                            )
                     elif dic < 0:
                         stable_counter = 0
                         robot.mecanum_move_turn(0, 0, 3, turn_speed)
-                        _log.bind(state="turn_right", dist=distance, offset=offset, turn=turn_speed).trace("右转")
+                        _log.bind(
+                            state="turn_right",
+                            dist=distance,
+                            offset=offset,
+                            turn=turn_speed,
+                        ).trace("右转")
                     else:
                         stable_counter = 0
                         robot.mecanum_move_turn(0, 0, 2, turn_speed)
-                        _log.bind(state="turn_left", dist=distance, offset=offset, turn=turn_speed).trace("左转")
+                        _log.bind(
+                            state="turn_left",
+                            dist=distance,
+                            offset=offset,
+                            turn=turn_speed,
+                        ).trace("左转")
                 elif turn_speed < 3:
-                    if distance <= GRAB_DISTANCE_THRESHOLD + GRAB_DISTANCE_TOLERANCE and abs(offset) < GRAB_OFFSET_THRESHOLD:
+                    if (
+                        distance <= GRAB_DISTANCE_THRESHOLD + GRAB_DISTANCE_TOLERANCE
+                        and abs(offset) < GRAB_OFFSET_THRESHOLD
+                    ):
                         stable_counter += 1
-                        _log.bind(state="forward_grab", dist=distance, offset=offset, stable=stable_counter, need=GRAB_STABLE_FRAMES).trace("微调前进已就绪")
+                        _log.bind(
+                            state="forward_grab",
+                            dist=distance,
+                            offset=offset,
+                            stable=stable_counter,
+                            need=GRAB_STABLE_FRAMES,
+                        ).trace("微调前进已就绪")
                         if stable_counter >= GRAB_STABLE_FRAMES:
-                            _log.bind(dist=distance, offset=offset).success("已对准，准备抓取")
+                            _log.bind(dist=distance, offset=offset).success(
+                                "已对准，准备抓取"
+                            )
                             grab_event.set()
                             stop_event.set()
                             return
                     else:
                         stable_counter = 0
                     robot.mecanum_move_speed(0, dist_forward)
-                    _log.bind(state="forward", dist=distance, speed=dist_forward).trace("前进")
+                    _log.bind(state="forward", dist=distance, speed=dist_forward).trace(
+                        "前进"
+                    )
                 elif dic < 0:
                     stable_counter = 0
                     robot.mecanum_move_turn(0, dist_forward, 3, turn_speed)
-                    _log.bind(state="fwd_right", dist=distance, fwd=dist_forward, turn=turn_speed).trace("前进右转")
+                    _log.bind(
+                        state="fwd_right",
+                        dist=distance,
+                        fwd=dist_forward,
+                        turn=turn_speed,
+                    ).trace("前进右转")
                 else:
                     stable_counter = 0
                     robot.mecanum_move_turn(0, dist_forward, 2, turn_speed)
-                    _log.bind(state="fwd_left", dist=distance, fwd=dist_forward, turn=turn_speed).trace("前进左转")
+                    _log.bind(
+                        state="fwd_left",
+                        dist=distance,
+                        fwd=dist_forward,
+                        turn=turn_speed,
+                    ).trace("前进左转")
 
             stop_event.wait(0.05)
 
@@ -399,7 +475,12 @@ def track_and_grab_phase(robot, color):
             stop_event.set()
             return
 
-        model(np.zeros((YOLO_IMGSZ, YOLO_IMGSZ, 3), dtype=np.uint8), imgsz=YOLO_IMGSZ, conf=YOLO_CONF, verbose=False)
+        model(
+            np.zeros((YOLO_IMGSZ, YOLO_IMGSZ, 3), dtype=np.uint8),
+            imgsz=YOLO_IMGSZ,
+            conf=YOLO_CONF,
+            verbose=False,
+        )
         _log.success("模型预热完成")
 
         while not stop_event.is_set():
@@ -446,7 +527,15 @@ def track_and_grab_phase(robot, color):
                     state["found"] = True
                     cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
                     cv2.line(frame, (cx, 0), (cx, fh), (255, 255, 0), 1)
-                    cv2.putText(frame, color, (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    cv2.putText(
+                        frame,
+                        color,
+                        (x, y - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 0),
+                        2,
+                    )
                 else:
                     state["found"] = False
                 state["frame"] = frame
@@ -461,7 +550,9 @@ def track_and_grab_phase(robot, color):
 
     _log.info("进入追踪主循环（按 Q 退出）")
     try:
-        while vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set():
+        while (
+            vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set()
+        ):
             with lock:
                 disp = state["frame"]
             if disp is not None:
@@ -508,6 +599,268 @@ def track_and_grab_phase(robot, color):
 
     _log.success("抓取完成")
     return True
+
+
+# ============================================================
+# 阶段 4 — 从取货区导航到 A/B 卸货区
+# ============================================================
+
+
+def _get_target_tag(tags, target_id):
+    """从 AprilTag 列表中查找目标 Tag"""
+    for tag in tags:
+        if tag[0] == target_id:
+            return tag
+    return None
+
+
+def _chase_apriltag(robot, target_id, target_dist):
+    """追踪 AprilTag 到达目标距离
+
+    Returns: True 到达目标距离，False 被中断
+    """
+    _log.bind(tag_id=target_id, target_dist=target_dist).info("开始追踪 AprilTag")
+
+    state = {"tag": None}
+    lock = threading.Lock()
+    stop_event = threading.Event()
+    reached = False
+
+    pid = robot.create_pid_controller()
+    pid.set_pid(APRILTAG_KP, APRILTAG_KI, APRILTAG_KD)
+    _log.bind(pid="horizontal", kp=APRILTAG_KP, ki=APRILTAG_KI, kd=APRILTAG_KD).info(
+        "水平 PID 配置"
+    )
+
+    def control_loop():
+        nonlocal reached
+        while not stop_event.is_set():
+            with lock:
+                tag = state["tag"]
+
+            if tag is None:
+                robot.mecanum_move_xyz(0, 0, APRILTAG_SEARCH_SPEED)
+                _log.bind(state="searching").trace("搜索旋转")
+            else:
+                _id, cx, cy = tag[:3]
+
+                distance = robot.read_distance_data(SENSOR_ID)
+                if distance <= 0:
+                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
+                        "距离传感器无数据"
+                    )
+                    stop_event.set()
+                    return
+
+                offset_px = cx - (640 // 2)
+                dic = round(pid.update(offset_px))
+                z_speed = dic
+
+                if distance < APRILTAG_STOP_DISTANCE:
+                    y_speed = 0
+                elif distance < APRILTAG_SLOW_DISTANCE:
+                    y_speed = int(
+                        np.clip(
+                            (distance - APRILTAG_STOP_DISTANCE) * 3,
+                            5,
+                            APRILTAG_CHASE_SPEED,
+                        )
+                    )
+                else:
+                    y_speed = APRILTAG_CHASE_SPEED
+
+                if abs(y_speed) < 1 and abs(z_speed) < 3:
+                    robot.stop_chassis()
+                    _log.bind(
+                        state="idle", distance=distance, offset_px=offset_px
+                    ).trace("待命")
+                    if distance < APRILTAG_STOP_DISTANCE:
+                        reached = True
+                        break
+                else:
+                    z_speed = int(
+                        np.clip(
+                            z_speed, -APRILTAG_TURN_SPEED_MAX, APRILTAG_TURN_SPEED_MAX
+                        )
+                    )
+                    robot.mecanum_move_xyz(0, y_speed, z_speed)
+                    _log.bind(
+                        state="chase",
+                        distance=distance,
+                        offset_px=offset_px,
+                        y_speed=y_speed,
+                        z_speed=z_speed,
+                    ).trace("追踪")
+
+            stop_event.wait(0.05)
+
+    def vision_loop():
+        while not stop_event.is_set():
+            try:
+                tags = robot.get_apriltag_total_info()
+            except Exception:
+                _log.opt(exception=True).warning("AprilTag 推理异常")
+                stop_event.wait(0.05)
+                continue
+
+            target = _get_target_tag(tags, target_id) if tags else None
+            with lock:
+                state["tag"] = target
+
+    ctrl_thread = threading.Thread(target=control_loop, daemon=True)
+    vis_thread = threading.Thread(target=vision_loop, daemon=True)
+
+    try:
+        ctrl_thread.start()
+        vis_thread.start()
+        while (
+            vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set()
+        ):
+            stop_event.wait(0.05)
+    except KeyboardInterrupt:
+        _log.info("追踪被中断")
+    finally:
+        stop_event.set()
+        try:
+            robot.stop_chassis()
+        except Exception:
+            pass
+
+    return reached
+
+
+def unload_phase(robot, zone):
+    """从取货区导航到 A/B 卸货区
+
+    子阶段：
+      4a: 追踪 AprilTag 到达卸货区附近
+      4b: 巡线进入卸货区
+    """
+    _log.bind(zone=zone).info("开始导航到卸货区")
+
+    # ── 子阶段 4a: 追踪 AprilTag ──
+    _log.info("子阶段 4a: 追踪 AprilTag")
+    robot.load_models(["apriltag_qrcode"])
+    _log.success("AprilTag 模型加载完成")
+    time.sleep(1)
+
+    reached = _chase_apriltag(robot, TARGET_TAG_ID, APRILTAG_TARGET_DISTANCE)
+    if not reached:
+        _log.warning("未追踪到 AprilTag")
+        return
+
+    # 左转进入巡线区域
+    _log.bind(action="turn_left", speed=TURN_SPEED, angle=TURN_ANGLE).debug(
+        "左转进入巡线区域"
+    )
+    robot.mecanum_turn_speed_times(2, TURN_SPEED, TURN_ANGLE, 2)
+    time.sleep(1)
+    robot.stop_chassis()
+    time.sleep(0.5)
+
+    # ── 子阶段 4b: 巡线进入卸货区 ──
+    _log.info("子阶段 4b: 巡线进入卸货区")
+    gotoA = zone == "A"
+    cross_count = 0
+
+    # ── 加载车道线识别模型 ──
+    robot.load_models(["line_recognition"])
+    robot.set_track_recognition_line(0)
+    _log.success("车道线模型加载完成")
+
+    # ── 等待模型初始化 ──
+    _log.info("等待模型就绪...")
+    time.sleep(1)
+
+    # ── 创建 PID 控制器 ──
+    pid = robot.create_pid_controller()
+    pid.set_pid(LINE_KP, LINE_KI, LINE_KD)
+
+    # ── 模型预热 ──
+    _log.info("预热模型...")
+    for _ in range(30):
+        robot.get_single_track_total_info()
+        time.sleep(0.05)
+
+    # ── 状态变量 ──
+    was_lost = True
+
+    # ── 巡线主循环 ──
+    try:
+        _log.info("开始巡线到卸货区")
+        while True:
+            info = robot.get_single_track_total_info()
+            offset, line_type, _, _ = info
+            distance = robot.read_distance_data(SENSOR_ID)
+
+            # 到达目的地
+            if distance > 0 and distance < STOP_DISTANCE:
+                _log.info("到达目的地")
+                break
+
+            # 路口检测
+            is_cross = line_type in (2, 3)
+            if is_cross:
+                cross_count += 1
+                _log.bind(cross_count=cross_count, zone=zone).debug("检测到路口")
+
+                # 判断是否需要右转
+                if gotoA:
+                    should_turn = cross_count <= 2
+                else:
+                    should_turn = cross_count <= 3 and cross_count != 2
+
+                # 判断是否到达目的地
+                if gotoA:
+                    arrived = cross_count > 2
+                else:
+                    arrived = cross_count > 3
+
+                if arrived:
+                    robot.mecanum_move_speed_times(
+                        0, LINE_SPEED, CROSS_FORWARD_SHORT, 1
+                    )
+                    time.sleep(0.8)
+                    _log.bind(zone=zone).success("已到达卸货区")
+                    break
+                elif should_turn:
+                    robot.mecanum_move_speed_times(0, LINE_SPEED, CROSS_FORWARD_LONG, 1)
+                    time.sleep(0.8)
+                    _log.bind(
+                        action="turn_right", speed=TURN_SPEED, angle=TURN_ANGLE
+                    ).debug("右转")
+                    robot.mecanum_turn_speed_times(3, TURN_SPEED, TURN_ANGLE, 2)
+                    time.sleep(1)
+
+            # 丢线处理
+            if line_type == 0:
+                robot.mecanum_turn_speed(3, 30)
+                if not was_lost:
+                    _log.debug("丢失车道线")
+                    was_lost = True
+            # 正常跟线
+            else:
+                dic = round(pid.update(offset))
+                if dic >= 0:
+                    robot.mecanum_move_turn(0, LINE_SPEED, 3, dic)
+                else:
+                    robot.mecanum_move_turn(0, LINE_SPEED, 2, -dic)
+                if was_lost:
+                    _log.debug("重新检测到车道线")
+                was_lost = False
+
+            time.sleep(0.05)
+
+    except KeyboardInterrupt:
+        _log.info("导航被中断")
+    finally:
+        _log.bind(action="clamp_release").info("夹手张开")
+        robot.mechanical_clamp_release()
+        try:
+            robot.stop_chassis()
+        except Exception:
+            pass
+        _log.success("卸货区导航结束")
 
 
 # ============================================================
@@ -561,7 +914,7 @@ def _connect_robot():
 
 def main():
     _log.success("=" * 48)
-    _log.success("UGOT 集成任务：语音 → 巡线 → 追踪 → 夹方块")
+    _log.success("UGOT 集成任务：语音 → 巡线 → 追踪 → 夹方块 → 卸货")
     _log.success("=" * 48)
 
     robot = _connect_robot()
@@ -571,7 +924,7 @@ def main():
     try:
         # ── 阶段 1: 语音指令 ──
         _log.info(SEP2)
-        _log.info("阶段 1/3 — 语音指令")
+        _log.info("阶段 1/4 — 语音指令")
         robot.set_volume(80)
         time.sleep(0.5)
 
@@ -580,31 +933,44 @@ def main():
             robot.play_audio_tts("未识别到目标颜色，程序退出", 0, wait=True)
             return
 
-        confirm = f"收到指令，搬运{['红色','绿色','蓝色'][['red','green','blue'].index(color)]}色块"
-        if zone:
-            confirm += f"到{zone}区"
+        # 如果未识别到区域，重试一次
+        if zone is None:
+            robot.play_audio_tts("未识别到目标区域，请再说一次", 0, wait=True)
+            time.sleep(1)
+            _, zone = voice_command_phase(robot)
+            if zone is None:
+                robot.play_audio_tts("仍未识别到区域，程序退出", 0, wait=True)
+                return
+
+        confirm = f"收到指令，搬运{['红色','绿色','蓝色'][['red','green','blue'].index(color)]}色块到{zone}区"
         robot.play_audio_tts(confirm, 0, wait=True)
         _log.success(confirm)
         time.sleep(1)
 
         # ── 阶段 2: 巡线导航 ──
         _log.info(SEP2)
-        _log.info("阶段 2/3 — 巡线导航到取货区")
+        _log.info("阶段 2/4 — 巡线导航到取货区")
         line_follow_phase(robot)
 
         # ── 阶段 3: 追踪 + 抓取 ──
         _log.info(SEP2)
-        _log.info("阶段 3/3 — YOLO 追踪 + 抓取")
+        _log.info("阶段 3/4 — YOLO 追踪 + 抓取")
         _log.bind(color=color).info("打开摄像头")
         robot.open_camera()
         time.sleep(1)
 
         ok = track_and_grab_phase(robot, color)
-        if ok:
-            robot.play_audio_tts("任务完成", 0, wait=True)
-            _log.success("任务完成")
-        else:
+        if not ok:
             _log.warning("未完成抓取")
+            robot.play_audio_tts("抓取失败，程序退出", 0, wait=True)
+            return
+
+        # ── 阶段 4: 导航到卸货区 ──
+        _log.info(SEP2)
+        _log.info("阶段 4/4 — 导航到卸货区")
+        unload_phase(robot, zone)
+        robot.play_audio_tts(f"已到达{zone}区，任务完成", 0, wait=True)
+        _log.success(f"已到达{zone}区")
 
     except KeyboardInterrupt:
         _log.info("收到停止信号")
