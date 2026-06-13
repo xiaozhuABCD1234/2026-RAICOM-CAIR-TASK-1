@@ -80,7 +80,7 @@ _SHORT_COLORS = ["红", "绿", "蓝"]
 
 # ── 巡线 (main.py) ──
 LINE_KP, LINE_KI, LINE_KD = 0.23, 0, 0
-LINE_SPEED = 30
+LINE_SPEED = 20
 
 # ── 卸货区导航 (goto_zone.py) ──
 STOP_DISTANCE = 8  # 巡线时到达目的地距离 cm
@@ -88,6 +88,7 @@ CROSS_FORWARD_SHORT = 16  # 路口短前进距离 cm
 CROSS_FORWARD_LONG = 22  # 路口长前进距离 cm
 TURN_SPEED = 40  # 路口转弯速度
 TURN_ANGLE = 90  # 路口转弯角度
+CROSS_CONFIRM_FRAMES = 2  # 路口防抖确认帧数
 
 # ── AprilTag 追踪 (goto_zone.py) ──
 APRILTAG_SEARCH_SPEED = 15  # 搜索旋转速度
@@ -236,7 +237,6 @@ def line_follow_phase(robot):
     cross_count = 0
     last_is_cross = False
     cross_stable_frames = 0
-    CROSS_CONFIRM_FRAMES = 1
     cooldown_until = 0
 
     _log.info("开始巡线")
@@ -257,10 +257,9 @@ def line_follow_phase(robot):
                 and cross_stable_frames >= CROSS_CONFIRM_FRAMES
                 and not last_is_cross
             )
-            if is_cross and rising:
-                last_is_cross = True
 
             if rising and cross_count < 3 and time.time() > cooldown_until:
+                last_is_cross = True
                 cross_count += 1
                 robot.mecanum_move_speed_times(0, LINE_SPEED, 22, 1)
                 time.sleep(0.8)
@@ -353,7 +352,6 @@ def track_and_grab_phase(robot, color, sensor_id):
             with lock:
                 found = state["found"]
                 offset = state["offset"]
-                area = state["area"]
 
             if not found:
                 stable_counter = 0
@@ -793,6 +791,9 @@ def unload_phase(robot, zone, sensor_id):
 
     # ── 状态变量 ──
     was_lost = True
+    last_is_cross = False
+    cross_stable_frames = 0
+    cooldown_until = 0
 
     # ── 巡线主循环 ──
     try:
@@ -816,6 +817,19 @@ def unload_phase(robot, zone, sensor_id):
             # 路口检测
             is_cross = line_type in (2, 3)
             if is_cross:
+                cross_stable_frames += 1
+            else:
+                cross_stable_frames = 0
+                last_is_cross = False
+
+            rising = (
+                is_cross
+                and cross_stable_frames >= CROSS_CONFIRM_FRAMES
+                and not last_is_cross
+            )
+
+            if rising and time.time() > cooldown_until:
+                last_is_cross = True
                 cross_count += 1
                 _log.bind(cross_count=cross_count, zone=zone).debug("检测到路口")
 
@@ -846,6 +860,7 @@ def unload_phase(robot, zone, sensor_id):
                     ).debug("右转")
                     robot.mecanum_turn_speed_times(3, TURN_SPEED, TURN_ANGLE, 2)
                     time.sleep(1)
+                    cooldown_until = time.time() + 0.2
 
             # 丢线处理
             if line_type == 0:

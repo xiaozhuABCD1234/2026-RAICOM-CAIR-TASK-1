@@ -12,8 +12,7 @@ from logger import get_logger
 from chase_cv import SEARCH_SPEED, KP, KI, KD, CHASE_SPEED, TURN_SPEED_MAX, \
     TARGET_DISTANCE, DISTANCE_KP, DISTANCE_KI, DISTANCE_KD, \
     BACKWARD_SPEED, get_largest_cube
-from control_servo import SERVO_IDS, JOINTS, DEFAULT_DURATION, \
-    set_servo_position, set_all_servo_positions
+from control_servo import set_servo_position, set_all_servo_positions
 
 GRAB_DISTANCE_THRESHOLD = 10
 GRAB_OFFSET_THRESHOLD = 20
@@ -356,7 +355,7 @@ def main():
 
     except KeyboardInterrupt:
         _log.info("收到停止信号")
-    except Exception as e:
+    except Exception:
         _log.opt(exception=True).error("发生异常")
     finally:
         _log.bind(joint1=90, joint2=20, joint3=-80).info("复位")

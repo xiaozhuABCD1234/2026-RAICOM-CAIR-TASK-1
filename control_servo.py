@@ -73,7 +73,7 @@ def main():
 
     except KeyboardInterrupt:
         _log.info("收到停止信号")
-    except Exception as e:
+    except Exception:
         _log.opt(exception=True).error("发生异常")
 
     finally:

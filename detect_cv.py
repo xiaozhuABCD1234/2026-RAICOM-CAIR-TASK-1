@@ -66,7 +66,7 @@ def main():
             robot.initialize(device_ip=ip)
             _log.success("初始化成功")
             break
-        except Exception as e:
+        except Exception:
             _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning("初始化尝试失败")
             if attempt < 2:
                 time.sleep(2)

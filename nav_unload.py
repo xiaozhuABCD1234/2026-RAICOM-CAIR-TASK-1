@@ -30,7 +30,7 @@ TARGET_TAG_ID = 0  # 默认追踪的 AprilTag ID
 
 # ── 巡线参数 ──
 LINE_KP, LINE_KI, LINE_KD = 0.23, 0, 0  # 巡线 PID（当前只有 P 有效）
-LINE_SPEED = 30  # 巡线前进速度 cm/s
+LINE_SPEED = 20  # 巡线前进速度 cm/s
 
 # ── 距离阈值 ──
 STOP_DISTANCE = 8  # 巡线时到达目的地距离 cm
@@ -42,6 +42,7 @@ CROSS_FORWARD_SHORT = 16  # 路口短前进距离 cm
 CROSS_FORWARD_LONG = 22  # 路口长前进距离 cm
 TURN_SPEED = 40  # 路口转弯速度
 TURN_ANGLE = 90  # 路口转弯角度
+CROSS_CONFIRM_FRAMES = 2  # 路口防抖确认帧数
 
 _log = get_logger()
 
@@ -274,6 +275,9 @@ def line_follow(robot, gotoA: bool, sensor_id=41):
     # ── 状态变量 ──
     # was_lost: 记录上一帧是否丢线，仅影响日志输出，不影响控制
     was_lost = True
+    last_is_cross = False
+    cross_stable_frames = 0
+    cooldown_until = 0
 
     # ── 巡线主循环 ──
     try:
@@ -292,6 +296,19 @@ def line_follow(robot, gotoA: bool, sensor_id=41):
 
             is_cross = line_type in (2, 3)
             if is_cross:
+                cross_stable_frames += 1
+            else:
+                cross_stable_frames = 0
+                last_is_cross = False
+
+            rising = (
+                is_cross
+                and cross_stable_frames >= CROSS_CONFIRM_FRAMES
+                and not last_is_cross
+            )
+
+            if rising and time.time() > cooldown_until:
+                last_is_cross = True
                 cross_count += 1
                 _log.bind(cross_count=cross_count, gotoA=gotoA).debug("检测到路口")
 
@@ -318,6 +335,7 @@ def line_follow(robot, gotoA: bool, sensor_id=41):
                     _log.bind(action="turn_right", speed=TURN_SPEED, angle=TURN_ANGLE).debug("右转")
                     robot.mecanum_turn_speed_times(3, TURN_SPEED, TURN_ANGLE, 2)
                     time.sleep(1)
+                    cooldown_until = time.time() + 0.2
             # ── 丢线处理 ──
             # line_type == 0 表示摄像头没检测到车道线
             # 策略：原地右旋，等待摄像头重新捕获车道线

@@ -29,7 +29,7 @@ def load_model(model_path):
     output_name = session.get_outputs()[0].name
     input_shape = session.get_inputs()[0].shape
     _log.bind(input_shape=input_shape).info("ONNX 输入形状")
-    h, w = input_shape[2], input_shape[3]
+    h, _ = input_shape[2], input_shape[3]
     target_size = (h if isinstance(h, int) and h > 0 else 640)
     _log.bind(input=input_name, output=output_name, size=target_size).success("模型加载成功")
     return session, input_name, output_name, target_size
@@ -152,7 +152,7 @@ def main():
             robot.initialize(device_ip=ip)
             _log.success("初始化成功")
             break
-        except Exception as e:
+        except Exception:
             _log.bind(attempt=attempt + 1, max_attempts=3).opt(exception=True).warning("初始化尝试失败")
             if attempt < 2:
                 time.sleep(2)

@@ -16,7 +16,9 @@ SEP2 = "─" * 10
 # PID 控制的比例系数、积分系数、微分系数
 KP, KI, KD = 0.23, 0, 0
 # 巡线速度，单位 cm/s
-SPEED = 30
+SPEED = 20
+# 路口防抖确认帧数
+CROSS_CONFIRM_FRAMES = 2
 
 _log = get_logger()
 
@@ -124,7 +126,6 @@ def main():
     cross_count = 0
     last_is_cross = False
     cross_stable_frames = 0
-    CROSS_CONFIRM_FRAMES = 1
     cooldown_until = 0
 
     _log.info("开始巡线主循环")
@@ -141,10 +142,9 @@ def main():
                 last_is_cross = False
 
             rising = is_cross and cross_stable_frames >= CROSS_CONFIRM_FRAMES and not last_is_cross
-            if is_cross and rising:
-                last_is_cross = True
 
             if rising and cross_count < 3 and time.time() > cooldown_until:
+                last_is_cross = True
                 cross_count += 1
                 robot.mecanum_move_speed_times(0, SPEED, 22, 1)
                 time.sleep(0.8)

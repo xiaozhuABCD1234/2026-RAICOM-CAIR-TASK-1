@@ -146,7 +146,7 @@ def main():
         _log.success(confirm_text)
         robot.play_audio_tts(confirm_text, 0, wait=True)
 
-    print(f"\n=== 语音指令解析结果 ===")
+    print("\n=== 语音指令解析结果 ===")
     print(f"原始指令: {result}")
     print(f"目标颜色: {parsed['color']}")
     print(f"目标存储区: {parsed['zone']}")

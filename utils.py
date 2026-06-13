@@ -10,7 +10,6 @@ import time
 # 导入 socket 模块，用于端口连通性检测
 import socket
 
-from config import ROBOT_IP
 
 # 分隔线字符 × 54，用于终端输出美观
 
