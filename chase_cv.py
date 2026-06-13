@@ -17,7 +17,7 @@ import time
 import threading
 
 # 从共享模块导入常量、工具函数和检测函数
-from utils import ROBOT_IP, COLOR_RANGES, wait_port, detect_cubes
+from utils import ROBOT_IP, COLOR_RANGES, wait_port, detect_cubes, discover_infrared_id
 from logger import get_logger
 
 # 追踪参数
@@ -28,8 +28,6 @@ KP, KI, KD = 0.25, 0, 0.05
 CHASE_SPEED = 15
 # 转向速度上限，防止 PID 输出过大
 TURN_SPEED_MAX = 40
-# 红外测距传感器 ID（与 distance_sensor.py 一致）
-SENSOR_ID = 41
 # 目标距离（cm），距离 PID 的目标值
 TARGET_DISTANCE = 10
 # 距离 PID 的比例系数、积分系数、微分系数
@@ -47,7 +45,7 @@ def get_largest_cube(cubes):
     return max(cubes, key=lambda c: c[4])
 
 
-def chase(robot, color, headless=False):
+def chase(robot, color, headless=False, sensor_id=41):
     """追踪指定颜色的立方体，使机器人始终正对目标。"""
     _log.bind(color=color, headless=headless).info("开始追踪")
     _log.info("按 Ctrl+C 停止")
@@ -78,9 +76,9 @@ def chase(robot, color, headless=False):
         with _log.contextualize(thread="control"):
             while not stop_event.is_set():
                 # ===== 距离传感器：PID 控制前进速度，精确维持目标距离 =====
-                distance = robot.read_distance_data(SENSOR_ID)
+                distance = robot.read_distance_data(sensor_id)
                 if distance <= 0:
-                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
+                    _log.bind(sensor_id=sensor_id, value=distance).critical(
                         "距离传感器无数据"
                     )
                     stop_event.set()
@@ -325,13 +323,16 @@ def main():
         _log.bind(attempts=3, ip=ip).error("连续 3 次初始化失败，退出")
         return
 
+    sensor_id = discover_infrared_id(robot)
+    _log.bind(sensor_id=sensor_id).info("红外传感器 ID")
+
     _log.bind(action="open_camera").info("正在打开摄像头...")
     robot.open_camera()
     _log.success("摄像头已打开")
     time.sleep(1)
 
     _log.info("进入追踪主循环")
-    chase(robot, color, headless=headless)
+    chase(robot, color, headless=headless, sensor_id=sensor_id)
     _log.info("追踪结束")
 
 

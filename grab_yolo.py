@@ -6,11 +6,11 @@ import time
 import threading
 import sys
 
-from utils import ROBOT_IP, COLOR_RANGES, wait_port, detect_cubes
+from utils import ROBOT_IP, COLOR_RANGES, wait_port, detect_cubes, discover_infrared_id
 from logger import get_logger
 
 from chase_cv import SEARCH_SPEED, KP, KI, KD, CHASE_SPEED, TURN_SPEED_MAX, \
-    SENSOR_ID, TARGET_DISTANCE, DISTANCE_KP, DISTANCE_KI, DISTANCE_KD, \
+    TARGET_DISTANCE, DISTANCE_KP, DISTANCE_KI, DISTANCE_KD, \
     BACKWARD_SPEED, get_largest_cube
 from control_servo import SERVO_IDS, JOINTS, DEFAULT_DURATION, \
     set_servo_position, set_all_servo_positions
@@ -22,7 +22,7 @@ GRAB_STABLE_FRAMES = 10
 _log = get_logger()
 
 
-def track_and_wait(robot, color, headless, grab_event):
+def track_and_wait(robot, color, headless, grab_event, sensor_id=41):
     state = {"offset": None, "area": 0, "found": False, "frame": None}
     lock = threading.Lock()
     stop_event = threading.Event()
@@ -46,9 +46,9 @@ def track_and_wait(robot, color, headless, grab_event):
         stable_counter = 0
         with _log.contextualize(thread="control"):
             while not stop_event.is_set():
-                distance = robot.read_distance_data(SENSOR_ID)
+                distance = robot.read_distance_data(sensor_id)
                 if distance <= 0:
-                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical("距离传感器无数据")
+                    _log.bind(sensor_id=sensor_id, value=distance).critical("距离传感器无数据")
                     stop_event.set()
                     return
 
@@ -315,6 +315,9 @@ def main():
         _log.bind(attempts=3, ip=ip).error("连续 3 次初始化失败，退出")
         return
 
+    sensor_id = discover_infrared_id(got)
+    _log.bind(sensor_id=sensor_id).info("红外传感器 ID")
+
     _log.bind(action="open_camera").info("正在打开摄像头...")
     got.open_camera()
     _log.success("摄像头已打开")
@@ -330,7 +333,7 @@ def main():
         time.sleep(0.3)
 
         grab_event = threading.Event()
-        track_and_wait(got, color, headless, grab_event)
+        track_and_wait(got, color, headless, grab_event, sensor_id=sensor_id)
 
         if not grab_event.is_set():
             _log.info("未触发抓取，结束")

@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from ugot import ugot
 
-from utils import ROBOT_IP, wait_port
+from utils import ROBOT_IP, wait_port, discover_infrared_id
 from logger import get_logger
 
 # ── AprilTag 追踪参数 ──
@@ -25,7 +25,6 @@ SEARCH_SPEED = 15  # 搜索旋转速度（未检测到 tag 时的旋转速度）
 KP, KI, KD = 0.12, 0, 0.10  # 追踪 PID：P=水平偏移修正，I=禁用，D=阻尼
 CHASE_SPEED = 20  # 追踪前进速度 cm/s
 TURN_SPEED_MAX = 30  # 追踪转弯速度上限
-SENSOR_ID = 41  # 距离传感器 ID
 TARGET_DISTANCE = 9.3  # 目标距离 cm，到达此距离视为追踪完成
 TARGET_TAG_ID = 0  # 默认追踪的 AprilTag ID
 
@@ -54,12 +53,12 @@ def get_target_tag(tags, target_id):
     return None
 
 
-def read_distance(got, sensor_id=SENSOR_ID):
+def read_distance(got, sensor_id):
     """读取红外测距传感器数值"""
     return got.read_distance_data(sensor_id)
 
 
-def chase(robot, headless, target_id, target_dist):
+def chase(robot, headless, target_id, target_dist, sensor_id=41):
     _log.bind(
         tag_id=target_id,
         headless=headless,
@@ -92,9 +91,9 @@ def chase(robot, headless, target_id, target_dist):
                     _id, cx, cy = tag[:3]
                     area = tag[5]
 
-                    distance = read_distance(robot)
+                    distance = read_distance(robot, sensor_id)
                     if distance <= 0:
-                        _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
+                        _log.bind(sensor_id=sensor_id, value=distance).critical(
                             "距离传感器无数据"
                         )
                         stop_event.set()
@@ -231,7 +230,7 @@ def chase(robot, headless, target_id, target_dist):
     return reached
 
 
-def line_follow(robot, gotoA: bool):
+def line_follow(robot, gotoA: bool, sensor_id=41):
     """基础巡线：PID 跟线 + 丢线原地右旋搜索
 
     可调参数（文件顶部常量）：
@@ -286,7 +285,7 @@ def line_follow(robot, gotoA: bool):
             #   line_type: 线型，0=丢线，其他=检测到线
             info = robot.get_single_track_total_info()
             offset, line_type, _, _ = info
-            distance = read_distance(robot)
+            distance = read_distance(robot, sensor_id)
             if distance < STOP_DISTANCE:
                 _log.info("到达目的地")
                 break
@@ -440,11 +439,14 @@ def main():
     _log.success("摄像头已打开")
     time.sleep(1)
 
+    sensor_id = discover_infrared_id(robot)
+    _log.bind(sensor_id=sensor_id).info("红外传感器 ID")
+
     _log.bind(model="apriltag_qrcode").info("正在加载 AprilTag 模型...")
     robot.load_models(["apriltag_qrcode"])
     _log.success("模型加载成功")
 
-    reached = chase(robot, args.headless, args.target_id, args.target_dist)
+    reached = chase(robot, args.headless, args.target_id, args.target_dist, sensor_id=sensor_id)
     _log.info("追踪结束")
 
     if reached:
@@ -454,7 +456,7 @@ def main():
         _log.success("已到达目标位置，开始巡线")
         robot.stop_chassis()
         time.sleep(0.5)
-        line_follow(robot, args.goto_a)
+        line_follow(robot, args.goto_a, sensor_id=sensor_id)
     else:
         _log.info("未到达目标位置，跳过巡线")
 

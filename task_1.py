@@ -107,7 +107,6 @@ DEFAULT_DURATION = 800
 SEARCH_SPEED = 30
 TRACK_KP, TRACK_KI, TRACK_KD = 0.25, 0, 0.05
 CHASE_SPEED = 15
-SENSOR_ID = 41
 DISTANCE_KP, DISTANCE_KI, DISTANCE_KD = 2.0, 0, 0.1
 BACKWARD_SPEED = 7
 
@@ -176,6 +175,15 @@ def set_all_servo_positions(got, a1, a2, a3, duration_ms=DEFAULT_DURATION, wait=
         got.turn_servo_angle(sid, ang, duration_ms, wait=False)
     if wait:
         time.sleep(duration_ms / 1000.0 + 0.1)
+
+
+def _discover_infrared_id(robot):
+    devices = robot.get_peripheral_devices_list()
+    for dev in devices:
+        if dev.get("type") == "Infrared":
+            return int(dev.get("deviceId"))
+    _log.warning("未发现红外传感器，使用默认 ID 41")
+    return 41
 
 
 # ============================================================
@@ -306,7 +314,7 @@ def line_follow_phase(robot):
 # ============================================================
 
 
-def track_and_grab_phase(robot, color):
+def track_and_grab_phase(robot, color, sensor_id):
     _log.bind(color=color).info("开始 YOLO 追踪")
 
     state = {"offset": None, "area": 0, "found": False, "frame": None}
@@ -332,9 +340,9 @@ def track_and_grab_phase(robot, color):
     def control_loop():
         stable_counter = 0
         while not stop_event.is_set():
-            distance = robot.read_distance_data(SENSOR_ID)
+            distance = robot.read_distance_data(sensor_id)
             if distance <= 0:
-                _log.bind(sensor=SENSOR_ID, val=distance).critical("距离传感器无数据")
+                _log.bind(sensor=sensor_id, val=distance).critical("距离传感器无数据")
                 stop_event.set()
                 return
 
@@ -614,7 +622,7 @@ def _get_target_tag(tags, target_id):
     return None
 
 
-def _chase_apriltag(robot, target_id, target_dist):
+def _chase_apriltag(robot, target_id, target_dist, sensor_id):
     """追踪 AprilTag 到达目标距离
 
     Returns: True 到达目标距离，False 被中断
@@ -644,9 +652,9 @@ def _chase_apriltag(robot, target_id, target_dist):
             else:
                 _id, cx, cy = tag[:3]
 
-                distance = robot.read_distance_data(SENSOR_ID)
+                distance = robot.read_distance_data(sensor_id)
                 if distance <= 0:
-                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
+                    _log.bind(sensor_id=sensor_id, value=distance).critical(
                         "距离传感器无数据"
                     )
                     stop_event.set()
@@ -729,7 +737,7 @@ def _chase_apriltag(robot, target_id, target_dist):
     return reached
 
 
-def unload_phase(robot, zone):
+def unload_phase(robot, zone, sensor_id):
     """从取货区导航到 A/B 卸货区
 
     子阶段：
@@ -744,7 +752,7 @@ def unload_phase(robot, zone):
     _log.success("AprilTag 模型加载完成")
     time.sleep(1)
 
-    reached = _chase_apriltag(robot, TARGET_TAG_ID, APRILTAG_TARGET_DISTANCE)
+    reached = _chase_apriltag(robot, TARGET_TAG_ID, APRILTAG_TARGET_DISTANCE, sensor_id)
     if not reached:
         _log.warning("未追踪到 AprilTag")
         return
@@ -791,7 +799,7 @@ def unload_phase(robot, zone):
         while True:
             info = robot.get_single_track_total_info()
             offset, line_type, _, _ = info
-            distance = robot.read_distance_data(SENSOR_ID)
+            distance = robot.read_distance_data(sensor_id)
 
             # 到达目的地
             if distance > 0 and distance < STOP_DISTANCE:
@@ -921,6 +929,9 @@ def main():
     if robot is None:
         return
 
+    sensor_id = _discover_infrared_id(robot)
+    _log.bind(sensor_id=sensor_id).info("红外传感器 ID")
+
     try:
         # ── 阶段 1: 语音指令 ──
         _log.info(SEP2)
@@ -959,7 +970,7 @@ def main():
         robot.open_camera()
         time.sleep(1)
 
-        ok = track_and_grab_phase(robot, color)
+        ok = track_and_grab_phase(robot, color, sensor_id)
         if not ok:
             _log.warning("未完成抓取")
             robot.play_audio_tts("抓取失败，程序退出", 0, wait=True)
@@ -968,7 +979,7 @@ def main():
         # ── 阶段 4: 导航到卸货区 ──
         _log.info(SEP2)
         _log.info("阶段 4/4 — 导航到卸货区")
-        unload_phase(robot, zone)
+        unload_phase(robot, zone, sensor_id)
         robot.play_audio_tts(f"已到达{zone}区，任务完成", 0, wait=True)
         _log.success(f"已到达{zone}区")
 

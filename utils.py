@@ -131,3 +131,11 @@ def detect_cubes(frame, color):
         results.append((x, y, w, h, area))
 
     return results
+
+
+def discover_infrared_id(robot):
+    devices = robot.get_peripheral_devices_list()
+    for dev in devices:
+        if dev.get("type") == "Infrared":
+            return int(dev.get("deviceId"))
+    return 41

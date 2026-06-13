@@ -8,14 +8,13 @@ import numpy as np
 from ugot import ugot
 from ultralytics import YOLO
 
-from utils import ROBOT_IP, wait_port
+from utils import ROBOT_IP, wait_port, discover_infrared_id
 from logger import get_logger
 
 SEARCH_SPEED = 30
 KP, KI, KD = 0.25, 0, 0.05
 CHASE_SPEED = 15
 # 转向速度上限由距离自适应决定（在控制循环中计算）
-SENSOR_ID = 41
 TARGET_DISTANCE = 9
 DISTANCE_KP, DISTANCE_KI, DISTANCE_KD = 2.0, 0, 0.1
 BACKWARD_SPEED = 7
@@ -31,7 +30,7 @@ def get_largest_cube(cubes):
     return max(cubes, key=lambda c: c[4])
 
 
-def chase(robot, model_path, args):
+def chase(robot, model_path, args, sensor_id=41):
     color = args.color
     headless = args.headless
     conf_thres = args.conf
@@ -64,9 +63,9 @@ def chase(robot, model_path, args):
     def control_loop():
         with _log.contextualize(thread="control"):
             while not stop_event.is_set():
-                distance = robot.read_distance_data(SENSOR_ID)
+                distance = robot.read_distance_data(sensor_id)
                 if distance <= 0:
-                    _log.bind(sensor_id=SENSOR_ID, value=distance).critical(
+                    _log.bind(sensor_id=sensor_id, value=distance).critical(
                         "距离传感器无数据"
                     )
                     stop_event.set()
@@ -357,13 +356,16 @@ def main():
         _log.bind(attempts=3, ip=ip).error("连续 3 次初始化失败，退出")
         return
 
+    sensor_id = discover_infrared_id(robot)
+    _log.bind(sensor_id=sensor_id).info("红外传感器 ID")
+
     _log.bind(action="open_camera").info("正在打开摄像头...")
     robot.open_camera()
     _log.success("摄像头已打开")
     time.sleep(1)
 
     _log.info("进入追踪主循环")
-    chase(robot, model_path, args)
+    chase(robot, model_path, args, sensor_id=sensor_id)
     _log.info("追踪结束")
 
 
