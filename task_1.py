@@ -192,13 +192,9 @@ def _discover_infrared_id(robot):
 
 
 def voice_command_phase(robot):
-    _log.info("请在提示音后说出指令（格式：搬运 X 色块到 X 区）")
-    robot.play_sound("received", wait=True)
-    time.sleep(0.5)
-
     _log.info("正在监听语音...")
     try:
-        resp = robot.AUDIO.setAudioAsr(duration=10000)
+        resp = robot.AUDIO.setAudioAsr(duration=5000)
         _log.bind(code=resp.code, msg=resp.msg, data=resp.data).info("ASR 原始响应")
         text = resp.data.strip() if resp.code == 0 and resp.data else ""
     except Exception:
@@ -300,8 +296,6 @@ def line_follow_phase(robot):
 
             time.sleep(0.05)
 
-    except KeyboardInterrupt:
-        _log.info("巡线被中断")
     finally:
         try:
             robot.stop_chassis()
@@ -556,7 +550,7 @@ def track_and_grab_phase(robot, color, sensor_id):
     ctrl_thread.start()
     vis_thread.start()
 
-    _log.info("进入追踪主循环（按 Q 退出）")
+    _log.info("进入追踪主循环")
     try:
         while (
             vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set()
@@ -565,14 +559,9 @@ def track_and_grab_phase(robot, color, sensor_id):
                 disp = state["frame"]
             if disp is not None:
                 cv2.imshow(f"YOLO Track - {color}", disp)
-                if cv2.waitKey(50) & 0xFF == ord("q"):
-                    _log.info("用户按 Q 退出追踪")
-                    stop_event.set()
-                    break
+                cv2.waitKey(50)
             else:
                 stop_event.wait(0.05)
-    except KeyboardInterrupt:
-        _log.info("追踪被中断")
     finally:
         stop_event.set()
         try:
@@ -725,8 +714,6 @@ def _chase_apriltag(robot, target_id, target_dist, sensor_id):
             vis_thread.is_alive() and ctrl_thread.is_alive() and not stop_event.is_set()
         ):
             stop_event.wait(0.05)
-    except KeyboardInterrupt:
-        _log.info("追踪被中断")
     finally:
         stop_event.set()
         try:
@@ -859,8 +846,6 @@ def unload_phase(robot, zone, sensor_id):
 
             time.sleep(0.05)
 
-    except KeyboardInterrupt:
-        _log.info("导航被中断")
     finally:
         _log.bind(action="clamp_release").info("夹手张开")
         robot.mechanical_clamp_release()
@@ -936,13 +921,16 @@ def main():
         # ── 阶段 1: 语音指令 ──
         _log.info(SEP2)
         _log.info("阶段 1/4 — 语音指令")
-        robot.set_volume(80)
+        robot.set_volume(100)
         time.sleep(0.5)
-
+        robot.play_audio_tts("请说出指令（格式：搬运 X 色块到 X 区）", 0, wait=True)
         color, zone = voice_command_phase(robot)
         if color is None:
-            robot.play_audio_tts("未识别到目标颜色，程序退出", 0, wait=True)
-            return
+            robot.play_audio_tts("未识别到目标颜色，请再说一次", 0, wait=True)
+            color, _ = voice_command_phase(robot)
+            if color is None:
+                robot.play_audio_tts("仍未识别到目标颜色，程序退出", 0, wait=True)
+                return
 
         # 如果未识别到区域，重试一次
         if zone is None:
