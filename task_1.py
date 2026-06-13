@@ -336,9 +336,17 @@ def track_and_grab_phase(robot, color, sensor_id):
         while not stop_event.is_set():
             distance = robot.read_distance_data(sensor_id)
             if distance <= 0:
-                _log.bind(sensor=sensor_id, val=distance).critical("距离传感器无数据")
-                stop_event.set()
-                return
+                for _ in range(3):
+                    stop_event.wait(0.05)
+                    distance = robot.read_distance_data(sensor_id)
+                    if distance > 0:
+                        break
+                else:
+                    _log.bind(sensor=sensor_id, val=distance).critical(
+                        "距离传感器连续无数据"
+                    )
+                    stop_event.set()
+                    return
 
             dist_error = round(pid_dist.update(distance - GRAB_DISTANCE_THRESHOLD))
 
@@ -643,11 +651,17 @@ def _chase_apriltag(robot, target_id, target_dist, sensor_id):
 
                 distance = robot.read_distance_data(sensor_id)
                 if distance <= 0:
-                    _log.bind(sensor_id=sensor_id, value=distance).critical(
-                        "距离传感器无数据"
-                    )
-                    stop_event.set()
-                    return
+                    for _ in range(3):
+                        stop_event.wait(0.05)
+                        distance = robot.read_distance_data(sensor_id)
+                        if distance > 0:
+                            break
+                    else:
+                        _log.bind(sensor_id=sensor_id, value=distance).critical(
+                            "距离传感器连续无数据"
+                        )
+                        stop_event.set()
+                        return
 
                 offset_px = cx - (640 // 2)
                 dic = round(pid.update(offset_px))
@@ -787,6 +801,12 @@ def unload_phase(robot, zone, sensor_id):
             info = robot.get_single_track_total_info()
             offset, line_type, _, _ = info
             distance = robot.read_distance_data(sensor_id)
+            if distance <= 0:
+                for _ in range(3):
+                    time.sleep(0.05)
+                    distance = robot.read_distance_data(sensor_id)
+                    if distance > 0:
+                        break
 
             # 到达目的地
             if distance > 0 and distance < STOP_DISTANCE:
