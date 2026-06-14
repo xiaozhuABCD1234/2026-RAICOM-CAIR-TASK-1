@@ -88,7 +88,7 @@ CROSS_FORWARD_SHORT = 16  # 路口短前进距离 cm
 CROSS_FORWARD_LONG = 22  # 路口长前进距离 cm
 TURN_SPEED = 40  # 路口转弯速度
 TURN_ANGLE = 90  # 路口转弯角度
-CROSS_CONFIRM_FRAMES = 2  # 路口防抖确认帧数
+CROSS_CONFIRM_FRAMES = 1  # 路口防抖确认帧数
 
 # ── AprilTag 追踪 (goto_zone.py) ──
 APRILTAG_SEARCH_SPEED = 15  # 搜索旋转速度
@@ -238,6 +238,13 @@ def line_follow_phase(robot):
     last_is_cross = False
     cross_stable_frames = 0
     cooldown_until = 0
+    # ── 模型预热 ──
+    _log.info("预热模型...")
+    for _ in range(30):
+        _, t, _, _ = robot.get_single_track_total_info()
+        while t != 2 or t != 3:
+            break
+        # time.sleep()
 
     _log.info("开始巡线")
     try:
@@ -245,7 +252,7 @@ def line_follow_phase(robot):
             info = robot.get_single_track_total_info()
             offset, line_type, _, _ = info
 
-            is_cross = line_type == 2 or line_type == 3
+            is_cross = (line_type == 3) or (line_type == 2 and cross_count == 2)
             if is_cross:
                 cross_stable_frames += 1
             else:
@@ -810,6 +817,7 @@ def unload_phase(robot, zone, sensor_id):
                         break
 
             # 到达目的地
+            _log.info(f"distance:{distance}")
             if distance > 0 and distance < STOP_DISTANCE:
                 _log.info("到达目的地")
                 break
@@ -1003,7 +1011,7 @@ def main():
         _log.info(SEP2)
         _log.info("阶段 4/4 — 导航到卸货区")
         unload_phase(robot, zone, sensor_id)
-        robot.play_audio_tts(f"已到达{zone}区，任务完成", 0, wait=True)
+        robot.play_audio_tts("任务一已完成", 0, wait=True)
         _log.success(f"已到达{zone}区")
 
     except KeyboardInterrupt:
